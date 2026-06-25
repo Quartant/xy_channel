@@ -20,7 +20,7 @@ interface PluginHookAgentContext {
   channelId?: string;
 }
 import type { ToolRetrieverConfig } from "./types.js";
-import { searchTools, formatToolsForContext, extractUserQuery } from "./tool-search.js";
+import {searchTools, extractUserQuery, formatSkillsForContext} from "./tool-search.js";
 import { logger } from "../utils/logger.js";
 
 const TOOL_RETRIEVER_HEADER = `[系统消息，非用户发言]
@@ -28,7 +28,7 @@ const TOOL_RETRIEVER_HEADER = `[系统消息，非用户发言]
 `;
 
 const TOOL_RETRIEVER_FOOTER = `
-以上是检索到的、与当前用户请求相关但用户尚未安装的skill，请按照TOOLS.md中find-skills中的[隐式推荐触发规则]来判断是否要给用户推荐。
+以上是检索到的、与当前用户请求相关的已安装skill，提供了针对特定任务的专门说明。当用户任务与skill描述匹配时，使用read工具加载skill文件。若skill提供为相对路径，在工具命令中使用时将其解析为绝对路径。
 `;
 
 const PLUGIN_LOG_PREFIX = "[skill-retriever]";
@@ -104,20 +104,13 @@ export function createBeforePromptBuildHandler(config: ToolRetrieverConfig) {
         timeoutMs: config.timeoutMs,
       });
 
-      if (!searchResult || searchResult.tools.length === 0) {
+      if (!searchResult || searchResult.disabledSkills.length === 0) {
         return undefined;
       }
 
-      logger.log(`${PLUGIN_LOG_PREFIX} [RESULT] Found ${searchResult.tools.length} skills, building context...`);
-      const toolsContext = formatToolsForContext(searchResult, config.includeUninstalledOnly);
-
-      if (!toolsContext) {
-        logger.log(`${PLUGIN_LOG_PREFIX} [ERROR] Failed to format skills context`);
-        return undefined;
-      }
-
+      const skillsContext = formatSkillsForContext(searchResult.disabledSkills);
       return {
-        prependContext: TOOL_RETRIEVER_HEADER + toolsContext + TOOL_RETRIEVER_FOOTER,
+        prependContext: TOOL_RETRIEVER_HEADER + skillsContext + TOOL_RETRIEVER_FOOTER,
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

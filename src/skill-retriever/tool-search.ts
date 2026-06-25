@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import type { EnvConfig, FormattedSkill, RawSkill, ToolSearchResult } from "./types.js";
+import { filterDisabledSkills } from "./skill-status.js";
 import { logger } from "../utils/logger.js";
 
 const SKILL_ID = "celia_find_skills";
@@ -115,7 +116,7 @@ export interface SearchToolsOptions {
 export async function searchTools(options: SearchToolsOptions): Promise<ToolSearchResult | null> {
   const {
     query,
-    maxTools = 5,
+    maxTools = 4,
     includeUninstalledOnly = true,
     envFilePath = "~/.openclaw/.xiaoyienv",
     serviceUrl: configServiceUrl,
@@ -125,9 +126,6 @@ export async function searchTools(options: SearchToolsOptions): Promise<ToolSear
   } = options;
 
   const envConfig = readEnvFile(envFilePath);
-
-  const hasRequiredConfig = !!envConfig.SERVICE_URL && !!envConfig.PERSONAL_API_KEY && !!envConfig.PERSONAL_UID;
-
   const serviceUrl = configServiceUrl ?? envConfig.SERVICE_URL;
   const apiKey = configApiKey ?? envConfig.PERSONAL_API_KEY;
   const uid = configUid ?? envConfig.PERSONAL_UID;
@@ -184,23 +182,19 @@ export async function searchTools(options: SearchToolsOptions): Promise<ToolSear
 
       const formattedData = formatSkillData(rawSkills, installedSkills);
 
-      const candidateTools = formattedData.filter((tool) => (tool.rrfScore ?? 0) >= 0.016);
+      const candidateTools = formattedData.filter((tool) => (tool.rrfScore ?? 0) >= 0.016).slice(0, maxTools);
+
       logger.log(`${PLUGIN_LOG_PREFIX} [DEBUG] Candidates with rrfScore >= 0.016: ${candidateTools.length}, details: ${candidateTools.map((t: FormattedSkill) => `${t.skillId}(rrfScore=${t.rrfScore}, status=${t.status})`).join(", ")}`);
 
-      const hasInstalledInCandidates = candidateTools.some((tool) => tool.status === "已安装");
-      if (hasInstalledInCandidates) {
-        logger.log(`${PLUGIN_LOG_PREFIX} [DEBUG] Candidates contain installed skill, returning null`);
-        return null;
-      }
+      const disabledSkills = filterDisabledSkills(candidateTools);
 
-      const filteredTools = candidateTools.slice(0, 2);
-      if (filteredTools.length === 0) {
-        logger.log(`${PLUGIN_LOG_PREFIX} [DEBUG] No candidates with rrfScore >= 0.016, returning null`);
+      if (disabledSkills.length === 0) {
+        logger.log(`${PLUGIN_LOG_PREFIX} [DEBUG] No disabled skills found, returning null`);
         return null;
       }
 
       return {
-        tools: filteredTools,
+        disabledSkills: disabledSkills,
         query,
         timestamp: Date.now(),
       };
@@ -218,17 +212,18 @@ export async function searchTools(options: SearchToolsOptions): Promise<ToolSear
   }
 }
 
-export function formatToolsForContext(result: ToolSearchResult, includeInstallUrl = true): string {
-  if (!result.tools || result.tools.length === 0) {
+export function formatSkillsForContext(skills: FormattedSkill[]): string {
+  if (!skills || skills.length === 0) {
     return "";
   }
 
   const toolDescriptions: string[] = [];
 
-  for (const tool of result.tools) {
+  for (const tool of skills) {
     let description = `### ${tool.skillName}\n`;
     description += `name: ${tool.skillId}\n`;
     description += `description: ${tool.skillDesc}\n`;
+    description += `location: ${tool.downloadPath}\n`;
 
     toolDescriptions.push(description);
   }

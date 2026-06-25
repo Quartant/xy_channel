@@ -27,7 +27,7 @@ export interface FormattedSkill {
 }
 
 export interface ToolSearchResult {
-  tools: FormattedSkill[];
+  disabledSkills: FormattedSkill[];
   query: string;
   timestamp: number;
 }
